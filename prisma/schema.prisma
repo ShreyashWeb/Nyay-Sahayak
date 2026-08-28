@@ -1,0 +1,67 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  language  String   @default("en") // "en" or "hi"
+  createdAt DateTime @default(now())
+  cases     Case[]
+}
+
+model Case {
+  id         String           @id @default(uuid())
+  userId     String
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status     String           @default("DRAFT") // "DRAFT", "SUBMITTED", "IN_REVIEW", "COMPLETED"
+  urgency    String           @default("LOW") // "LOW", "MEDIUM", "HIGH", "SOS"
+  categoryId String
+  category   LegalCategory    @relation(fields: [categoryId], references: [id])
+  latitude   Float?
+  longitude  Float?
+  address    String?
+  createdAt  DateTime         @default(now())
+  drafts     ComplaintDraft[]
+}
+
+model ComplaintDraft {
+  id        String   @id @default(uuid())
+  caseId    String
+  case      Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  draftData Json     // Stores structured complaint details, text, and metadata
+  createdAt DateTime @default(now())
+}
+
+model LegalCategory {
+  id                    String              @id @default(uuid())
+  name                  String              @unique // e.g. "Domestic Violence", "Labor Dispute"
+  hindiName             String
+  plainExplanation      String              @db.Text
+  plainExplanationHindi String              @db.Text
+  eligibilityNotes      String              @db.Text
+  cases                 Case[]
+  templates             ComplaintTemplate[]
+}
+
+model DLSAOffice {
+  id        String   @id @default(uuid())
+  name      String
+  address   String   @db.Text
+  phone     String
+  latitude  Float
+  longitude Float
+  state     String
+  district  String
+}
+
+model ComplaintTemplate {
+  id         String        @id @default(uuid())
+  categoryId String
+  category   LegalCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  template   String        @db.Text // Text template with placeholders
+}
