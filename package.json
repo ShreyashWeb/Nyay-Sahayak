@@ -10,6 +10,8 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@neon/config": "^1.1.0",
+    "@neon/env": "^1.1.6",
     "@prisma/client": "^6.19.3",
     "framer-motion": "^13.1.1",
     "jspdf": "^4.2.1",
@@ -23,6 +25,7 @@
   "devDependencies": {
     "eslint": "^8",
     "eslint-config-next": "14.2.35",
+    "neonctl": "^4.12.0",
     "postcss": "^8",
     "prisma": "^6.19.3",
     "tailwindcss": "^3.4.1"
