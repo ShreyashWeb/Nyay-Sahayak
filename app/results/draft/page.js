@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { FileText, ArrowLeft, Download, ShieldAlert, CheckCircle2, ChevronRight, Edit3, HelpCircle, FileCheck, AlertCircle, RefreshCcw } from "lucide-react";
+import { FileText, ArrowLeft, Download, ShieldAlert, CheckCircle2, ChevronRight, Edit3, HelpCircle, FileCheck, AlertCircle, RefreshCcw, Sparkles } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
@@ -61,6 +61,11 @@ function DraftContent() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("edit"); // "edit" or "preview" (for mobile)
   
+  // AI Complaint Generation State
+  const [aiGeneratedText, setAiGeneratedText] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [aiNote, setAiNote] = useState("");
+
   // Form input values
   const [formValues, setFormValues] = useState({
     userName: "",
@@ -298,6 +303,46 @@ function DraftContent() {
     return Object.keys(errors).length === 0;
   };
 
+  // Generate complete formal legal draft with AI (one-shot on explicit user click)
+  const handleGenerateAIDraft = async () => {
+    if (!validateForm()) {
+      setActiveTab("edit");
+      return;
+    }
+
+    try {
+      setIsGenerating(true);
+      setAiNote("");
+      const response = await fetch("/api/generate-complaint", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          categoryId: caseData?.categoryId,
+          formValues,
+          factsOfTheCase: formValues.factsOfTheCase,
+          language
+        })
+      });
+
+      const data = await response.json();
+      if (data.success && data.generatedText) {
+        setAiGeneratedText(data.generatedText);
+        setAiNote(language === "hi" ? "एआई ड्राफ्ट तैयार हो गया!" : "AI Formal Draft Ready!");
+        // Switch to preview tab on mobile to let user inspect
+        if (typeof window !== "undefined" && window.innerWidth < 1024) {
+          setActiveTab("preview");
+        }
+      } else {
+        setAiNote(language === "hi" ? "एआई जनरेशन अनुपलब्ध — मानक टेम्पलेट का उपयोग किया जा रहा है" : "AI generation unavailable — using standard template");
+      }
+    } catch (err) {
+      console.warn("AI draft generation error:", err);
+      setAiNote(language === "hi" ? "एआई जनरेशन अनुपलब्ध — मानक टेम्पलेट का उपयोग किया जा रहा है" : "AI generation unavailable — using standard template");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   // Compile jsPDF and download client-side
   const handleDownloadPdf = async () => {
     if (!validateForm()) {
@@ -319,7 +364,8 @@ function DraftContent() {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(11);
 
-      const text = compileComplaintText();
+      // Use AI-generated draft if available, otherwise compile template
+      const text = aiGeneratedText || compileComplaintText();
       const pageHeight = doc.internal.pageSize.height;
       const pageWidth = doc.internal.pageSize.width;
       const margin = 20;
@@ -769,9 +815,11 @@ function DraftContent() {
           </div>
 
           <div className="bg-white border border-base-dark/5 p-6 rounded-3xl shadow-3xs text-left space-y-4">
-            <h2 className="text-sm font-extrabold text-secondary uppercase tracking-wider border-b border-base-dark/5 pb-3">
-              3. Statement of Facts
-            </h2>
+            <div className="flex items-center justify-between border-b border-base-dark/5 pb-3">
+              <h2 className="text-sm font-extrabold text-secondary uppercase tracking-wider">
+                3. Statement of Facts
+              </h2>
+            </div>
 
             <div className="flex flex-col space-y-1">
               <label className="text-[10px] font-bold text-base-dark/70 uppercase">Facts & Chronology / घटना का विवरण *</label>
@@ -784,6 +832,33 @@ function DraftContent() {
               />
               {validationErrors.factsOfTheCase && (
                 <span className="text-[10px] text-danger font-bold">{validationErrors.factsOfTheCase}</span>
+              )}
+            </div>
+
+            {/* AI Draft Generator Action Bar */}
+            <div className="pt-2 border-t border-base-dark/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={handleGenerateAIDraft}
+                disabled={isGenerating}
+                className="w-full sm:w-auto flex items-center justify-center space-x-2 bg-secondary text-[#FAF9F6] hover:bg-secondary-hover px-5 py-3 rounded-xl text-xs font-bold transition-all shadow-sm min-h-[44px] disabled:opacity-60 cursor-pointer"
+              >
+                {isGenerating ? (
+                  <>
+                    <div className="h-4 w-4 rounded-full border-2 border-white/20 border-t-white animate-spin" />
+                    <span>{language === "hi" ? "एआई द्वारा ड्राफ्ट तैयार हो रहा है..." : "Generating Court Draft with AI..."}</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4 text-amber-300" />
+                    <span>{language === "hi" ? "एआई के साथ अंतिम ड्राफ्ट जनरेट करें" : "Generate Final Draft with AI"}</span>
+                  </>
+                )}
+              </button>
+              {aiNote && (
+                <span className={`text-[11px] font-bold ${aiGeneratedText ? "text-secondary" : "text-amber-700"}`}>
+                  {aiNote}
+                </span>
               )}
             </div>
           </div>
@@ -840,16 +915,18 @@ function DraftContent() {
           <div className="bg-white border border-base-dark/10 p-8 rounded-2xl shadow-sm text-left flex flex-col justify-between h-[640px] relative overflow-hidden">
             
             {/* Header watermarks */}
-            <div className="absolute top-2 right-4 flex items-center space-x-1.5 opacity-40 select-none">
+            <div className="absolute top-2 right-4 flex items-center space-x-1.5 opacity-60 select-none">
               <FileCheck className="h-4 w-4 text-secondary" />
-              <span className="text-[8px] font-extrabold tracking-widest text-secondary uppercase">DRAFT PREVIEW</span>
+              <span className="text-[8px] font-extrabold tracking-widest text-secondary uppercase">
+                {aiGeneratedText ? "AI FORMAL COURT DRAFT" : "LIVE TEMPLATE PREVIEW"}
+              </span>
             </div>
 
             {/* Scrollable Document area */}
             <div className="flex-grow overflow-y-auto pr-2 space-y-4 font-serif text-xs md:text-sm text-base-dark leading-relaxed whitespace-pre-line border-b border-base-dark/5 pb-4">
-              {compiledPreview ? (
+              {aiGeneratedText || compiledPreview ? (
                 <div className="space-y-4">
-                  <div>{compiledPreview}</div>
+                  <div>{aiGeneratedText || compiledPreview}</div>
                   {signatureImg && (
                     <div className="mt-4 flex flex-col items-start border-t border-base-dark/10 pt-4">
                       <p className="text-[10px] uppercase font-bold tracking-wider text-base-dark/50 mb-1.5">Digitally Signed:</p>

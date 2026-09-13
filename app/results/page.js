@@ -77,7 +77,12 @@ function ResultsContent() {
   const [caseData, setCaseData] = useState(null);
   const [loadingCase, setLoadingCase] = useState(true);
   const [activeCategory, setActiveCategory] = useState("");
-  const [lawExpanded, setLawExpanded] = useState(false);
+  const [lawExpanded, setLawExpanded] = useState(true);
+
+  // RAG Law Match State
+  const [ragData, setRagData] = useState(null);
+  const [loadingRag, setLoadingRag] = useState(false);
+  const [sourcesExpanded, setSourcesExpanded] = useState(false);
 
   // NALSA Form State
   const [nalsaProfile, setNalsaProfile] = useState({
@@ -94,6 +99,31 @@ function ResultsContent() {
   const [selectedState, setSelectedState] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
 
+  const fetchLawMatch = useCallback(async (descriptionText, entitiesObj, catId) => {
+    if (!descriptionText) return;
+    try {
+      setLoadingRag(true);
+      const res = await fetch("/api/law-match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: descriptionText,
+          entities: entitiesObj,
+          categoryId: catId,
+          language
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setRagData(data);
+      }
+    } catch (err) {
+      console.error("RAG Law Match error:", err);
+    } finally {
+      setLoadingRag(false);
+    }
+  }, [language]);
+
   const fetchCase = useCallback(async () => {
     if (!caseId) return;
     try {
@@ -104,6 +134,14 @@ function ResultsContent() {
       if (data.success) {
         setCaseData(data.case);
         setActiveCategory(data.case.categoryId);
+
+        // Trigger RAG Law Retrieval for the case description
+        const draft = data.case.drafts?.[0];
+        const rawText = draft?.draftData?.rawDescription || draft?.draftData?.text || "";
+        const entities = draft?.draftData?.entities || null;
+        if (rawText) {
+          fetchLawMatch(rawText, entities, data.case.categoryId);
+        }
       } else {
         setErrorMsg("Failed to load case data.");
       }
@@ -113,7 +151,7 @@ function ResultsContent() {
     } finally {
       setLoadingCase(false);
     }
-  }, [caseId]);
+  }, [caseId, fetchLawMatch]);
 
   // Fetch Case Data on mount
   useEffect(() => {
@@ -331,7 +369,7 @@ function ResultsContent() {
         </div>
       </motion.div>
  
-      {/* 2. Collapsible Applicable Law Card */}
+      {/* 2. Collapsible Applicable Law & RAG Rights Card */}
       <motion.div
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
@@ -350,6 +388,11 @@ function ResultsContent() {
             <span className="text-[#1A1A1A] md:text-lg">
               {language === "hi" ? "लागू होने वाले कानून और आपके अधिकार" : "Applicable Law & Your Rights"}
             </span>
+            {loadingRag && (
+              <span className="text-[10px] text-secondary bg-[#E7F3F0] px-2 py-0.5 rounded-full font-bold animate-pulse">
+                {language === "hi" ? "कानूनी धाराओं का मिलान..." : "Retrieving statutes..."}
+              </span>
+            )}
           </div>
           {lawExpanded ? <ChevronUp className="h-5 w-5 text-base-dark/60" /> : <ChevronDown className="h-5 w-5 text-base-dark/60" />}
         </button>
@@ -363,22 +406,106 @@ function ResultsContent() {
               className="overflow-hidden"
             >
               <div className="pt-4 border-t border-base-dark/5 mt-4 space-y-4">
-                <div>
-                  <h4 className="text-xs font-extrabold text-secondary uppercase tracking-wider mb-1">
-                    Plain-Language Explanation
-                  </h4>
-                  <p className="text-sm text-base-dark/80 leading-relaxed">
-                    {categoryExplanation}
-                  </p>
-                </div>
-                <div>
-                  <h4 className="text-xs font-extrabold text-secondary uppercase tracking-wider mb-1">
-                    Free Aid Statutory Notes
-                  </h4>
-                  <p className="text-sm text-base-dark/75 leading-relaxed">
-                    {caseData?.category?.eligibilityNotes}
-                  </p>
-                </div>
+                {loadingRag ? (
+                  <div className="space-y-3 py-2 animate-pulse">
+                    <div className="h-4 bg-base-dark/10 rounded w-1/3" />
+                    <div className="h-3.5 bg-base-dark/5 rounded w-full" />
+                    <div className="h-3.5 bg-base-dark/5 rounded w-5/6" />
+                    <div className="h-3.5 bg-base-dark/5 rounded w-2/3" />
+                  </div>
+                ) : ragData?.explanation ? (
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="text-xs font-extrabold text-secondary uppercase tracking-wider mb-2">
+                        {language === "hi" ? "कानूनी विश्लेषण और अधिकार" : "Legal Rights & Statutory Analysis"}
+                      </h4>
+                      <div className="text-xs md:text-sm text-base-dark/85 leading-relaxed whitespace-pre-line bg-base p-4 rounded-2xl border border-base-dark/5">
+                        {ragData.explanation}
+                      </div>
+                    </div>
+
+                    {/* Collapsible Sources Section */}
+                    {ragData.sources && ragData.sources.length > 0 && (
+                      <div className="border-t border-base-dark/5 pt-3">
+                        <button
+                          type="button"
+                          onClick={() => setSourcesExpanded(!sourcesExpanded)}
+                          className="flex items-center justify-between w-full text-xs font-bold text-base-dark/70 hover:text-secondary py-1 transition-colors"
+                        >
+                          <span className="flex items-center space-x-1.5">
+                            <FileText className="h-3.5 w-3.5 text-secondary" />
+                            <span>
+                              {language === "hi"
+                                ? `पुनर्प्राप्त कानूनी स्रोत (${ragData.sources.length})`
+                                : `Retrieved Statutory Sources (${ragData.sources.length})`}
+                            </span>
+                          </span>
+                          {sourcesExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        </button>
+
+                        <AnimatePresence>
+                          {sourcesExpanded && (
+                            <motion.div
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: "auto" }}
+                              exit={{ opacity: 0, height: 0 }}
+                              className="space-y-2.5 mt-2.5 overflow-hidden"
+                            >
+                              {ragData.sources.map((source, idx) => (
+                                <div
+                                  key={source.id || idx}
+                                  className="bg-base border border-base-dark/10 p-3 rounded-xl text-left space-y-1"
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-bold text-secondary">
+                                      {source.sourceLabel}
+                                    </span>
+                                    {source.similarity !== null && source.similarity !== undefined && (
+                                      <span className="text-[9px] font-extrabold bg-[#E7F3F0] text-secondary px-1.5 py-0.5 rounded">
+                                        {(source.similarity * 100).toFixed(0)}% match
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-[11px] text-base-dark/70 leading-normal">
+                                    {source.content}
+                                  </p>
+                                </div>
+                              ))}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    )}
+
+                    {/* General Legal Disclaimer */}
+                    <div className="bg-amber-50/70 border border-amber-200/60 rounded-xl p-3 text-[11px] text-amber-900 leading-relaxed">
+                      <strong>{language === "hi" ? "अस्वीकरण: " : "Disclaimer: "}</strong>
+                      {ragData.disclaimer || (language === "hi"
+                        ? "यह सामान्य कानूनी जानकारी है, आपके विशिष्ट मामले के लिए कानूनी सलाह नहीं। कोई भी कार्रवाई करने से पहले अपने जिला कानूनी सेवा प्राधिकरण या किसी योग्य वकील से पुष्टि करें।"
+                        : "This is general legal information, not legal advice for your specific case. Confirm details with your District Legal Services Authority or a qualified lawyer before taking action.")}
+                    </div>
+                  </div>
+                ) : (
+                  // Graceful fallback to category explanation
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="text-xs font-extrabold text-secondary uppercase tracking-wider mb-1">
+                        Plain-Language Explanation
+                      </h4>
+                      <p className="text-sm text-base-dark/80 leading-relaxed">
+                        {categoryExplanation}
+                      </p>
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-extrabold text-secondary uppercase tracking-wider mb-1">
+                        Free Aid Statutory Notes
+                      </h4>
+                      <p className="text-sm text-base-dark/75 leading-relaxed">
+                        {caseData?.category?.eligibilityNotes}
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             </motion.div>
           )}

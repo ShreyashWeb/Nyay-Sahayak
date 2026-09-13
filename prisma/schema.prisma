@@ -66,3 +66,13 @@ model ComplaintTemplate {
   category   LegalCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   template   String        @db.Text // Text template with placeholders
 }
+
+model LegalKnowledgeChunk {
+  id             String                     @id @default(uuid())
+  content        String                     @db.Text
+  sourceCategory String                     // matches existing classification categories
+  sourceLabel    String                     // e.g. "Protection of Women from Domestic Violence Act, 2005, Section 12"
+  embedding      Unsupported("vector(768)")?
+  createdAt      DateTime                   @default(now())
+}
+

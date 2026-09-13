@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import { classifyText } from "@/lib/classificationRules";
+import { classifyWithAI } from "@/lib/aiClassifier";
 
 export const dynamic = "force-dynamic";
 
@@ -60,9 +61,27 @@ export async function POST(request) {
       }, { status: 400 });
     }
 
-    // 1. Run rule-based classification
-    const classification = classifyText(text);
-    const { category, highRisk } = classification;
+    // 1. Run AI classification with keyword rule fallback
+    let category;
+    let highRisk;
+    let aiMetadata = null;
+
+    try {
+      const aiResult = await classifyWithAI(text);
+      category = aiResult.category;
+      highRisk = aiResult.highRisk;
+      aiMetadata = {
+        confidence: aiResult.confidence,
+        urgency: aiResult.urgency,
+        entities: aiResult.entities,
+        reasoning: aiResult.reasoning
+      };
+    } catch (error) {
+      console.warn("AI classification failed, using keyword fallback:", error.message);
+      const fallback = classifyText(text);
+      category = fallback.category;
+      highRisk = fallback.highRisk;
+    }
 
     // 2. Resolve User (create if not exist or missing)
     let dbUser;
@@ -103,17 +122,25 @@ export async function POST(request) {
       }
     });
 
-    // 5. Create linked ComplaintDraft storing raw description text
+    // 5. Create linked ComplaintDraft storing raw description text and extra AI metadata when available
+    const draftData = {
+      rawDescription: text,
+      language: language || "en",
+      categoryName: dbCategory.name,
+      urgency: highRisk ? "SOS" : "LOW",
+      generatedAt: new Date().toISOString(),
+      ...(aiMetadata ? {
+        confidence: aiMetadata.confidence,
+        urgency: aiMetadata.urgency,
+        entities: aiMetadata.entities,
+        reasoning: aiMetadata.reasoning
+      } : {})
+    };
+
     const dbDraft = await prisma.complaintDraft.create({
       data: {
         caseId: dbCase.id,
-        draftData: {
-          rawDescription: text,
-          language: language || "en",
-          categoryName: dbCategory.name,
-          urgency: highRisk ? "SOS" : "LOW",
-          generatedAt: new Date().toISOString()
-        }
+        draftData
       }
     });
 
@@ -124,7 +151,13 @@ export async function POST(request) {
       category: category,
       highRisk: highRisk,
       categoryName: dbCategory.name,
-      draftId: dbDraft.id
+      draftId: dbDraft.id,
+      ...(aiMetadata ? {
+        confidence: aiMetadata.confidence,
+        urgency: aiMetadata.urgency,
+        entities: aiMetadata.entities,
+        reasoning: aiMetadata.reasoning
+      } : {})
     }, { status: 200 });
 
   } catch (error) {
